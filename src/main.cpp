@@ -77,18 +77,49 @@ int main(int argc, char *argv[])
         }(),
         &selected);
 
-    auto renderer = Renderer(menu, [&] {
-        return window(text(fmt::format(" {} ", target)), menu->Render() | vscroll_indicator | frame) |
-               size(HEIGHT, EQUAL, Dimension::Full().dimy);
+    auto selectAll = [&]() {
+        bool setValue = true;
+        if (std::all_of(services.cbegin(), services.cend(), [](const auto &s) { return s.selected; })) {
+            setValue = false;
+        }
+        std::for_each(services.begin(), services.end(), [setValue](auto &s) { s.selected = setValue; });
+    };
+
+    auto forEachSelected = [&](std::function<void(std::string_view)> f) {
+        return [&services, &f]() {
+            std::for_each(services.cbegin(), services.cend(), [&f](const auto &s) {
+                if (s.selected)
+                    f(s.name);
+            });
+        };
+    };
+
+    auto wind = Container::Vertical({
+        menu | size(HEIGHT, EQUAL, Dimension::Full().dimy - 3) | vscroll_indicator | frame,
+        Container::Horizontal({
+            Button("Select all", selectAll, ButtonOption::Ascii()),
+            Button("Start", forEachSelected([&](std::string_view s) { ctl.start(s); }), ButtonOption::Ascii()),
+            Button("Stop", forEachSelected([&](std::string_view s) { ctl.stop(s); }), ButtonOption::Ascii()),
+            Button("Restart", forEachSelected([&](std::string_view s) { ctl.restart(s); }), ButtonOption::Ascii()),
+            Button("Reload", forEachSelected([&](std::string_view s) { ctl.reload(s); }), ButtonOption::Ascii()),
+        }),
     });
 
-    renderer |= CatchEvent([&](Event e) {
-        if (e == Event::Return || e == Event::Character(' ')) {
-            services[selected].selected = !services[selected].selected;
-            return true;
+    wind |= CatchEvent([&](Event e) {
+        if (menu->Focused()) {
+            if (e == Event::Return || e == Event::Character(' ')) {
+                services[selected].selected = !services[selected].selected;
+                return true;
+            } else {
+                return false;
+            }
         } else {
             return false;
         }
+    });
+
+    auto renderer = Renderer(wind, [&] {
+        return window(text(fmt::format(" {} ", target)), wind->Render()) | size(HEIGHT, EQUAL, Dimension::Full().dimy);
     });
 
     std::atomic<bool> exited = false;
