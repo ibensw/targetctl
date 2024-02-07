@@ -3,6 +3,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <string>
 
 #include <ftxui/component/component.hpp>
@@ -26,7 +27,7 @@ MenuEntryOption DecorateMenuEntry(const ServiceEntry &service)
 {
     MenuEntryOption option;
     option.transform = [&](EntryState state) {
-        state.label = (service.selected ? "[X] " : "[ ] ") + state.label;
+        state.label = (service.selected ? "[*] " : "[ ] ") + state.label;
         Element e = text(state.label);
         switch (service.state) {
             case ActiveState::Active:
@@ -95,7 +96,7 @@ int main(int argc, char *argv[])
     };
 
     auto wind = Container::Vertical({
-        menu | size(HEIGHT, EQUAL, Dimension::Full().dimy - 3) | vscroll_indicator | frame,
+        menu | vscroll_indicator | frame | size(HEIGHT, EQUAL, Dimension::Full().dimy - 3),
         Container::Horizontal({
             Button("Select all", selectAll, ButtonOption::Ascii()),
             Button("Start", forEachSelected([&](std::string_view s) { ctl.start(s); }), ButtonOption::Ascii()),
@@ -124,21 +125,28 @@ int main(int argc, char *argv[])
 
     std::atomic<bool> exited = false;
     std::thread updater([&]() {
+        static const std::set<ActiveState> quickStates = {
+            ActiveState::Activating,
+            ActiveState::Deactivating,
+            ActiveState::Reloading,
+        };
         while (!exited) {
             bool modified = false;
+            std::chrono::milliseconds updateInterval{250};
             for (auto &service : services) {
                 auto newState = ctl.getStatus(service.name);
                 if (service.state != newState) {
                     service.state = newState;
                     modified = true;
                 }
+                if (quickStates.count(service.state)) {
+                    updateInterval = std::chrono::milliseconds{50};
+                }
             }
             if (modified) {
                 screen.RequestAnimationFrame();
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            } else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(250));
             }
+            std::this_thread::sleep_for(updateInterval);
         }
     });
     screen.Loop(renderer);
