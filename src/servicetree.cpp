@@ -3,12 +3,12 @@
 #include <fmt/format.h>
 
 ServiceTree::Service ServiceTree::addService(std::set<std::string> &seen, std::string_view service,
-                                             std::size_t maxDepth, unsigned level)
+                                             RelationType relation, std::size_t maxDepth, unsigned level)
 {
     seen.insert(std::string(service));
     Service serviceObj{std::string(service), {}, {}, level, {}};
 
-    auto childNames = getDependants(service);
+    auto childNames = getDependants(service, relation);
     std::sort(childNames.begin(), childNames.end());
     serviceObj.children.reserve(childNames.size());
     if (maxDepth > 0) {
@@ -16,17 +16,17 @@ ServiceTree::Service ServiceTree::addService(std::set<std::string> &seen, std::s
             if (seen.count(childName)) {
                 fmt::print("Ignored duplicate in dependency chain: {}\n", childName);
             } else {
-                serviceObj.children.push_back(addService(seen, childName, maxDepth - 1, level + 1));
+                serviceObj.children.push_back(addService(seen, childName, relation, maxDepth - 1, level + 1));
             }
         }
     }
     return serviceObj;
 };
 
-ServiceTree::ServiceTree(std::string_view name, std::size_t maxDepth)
+ServiceTree::ServiceTree(std::string_view name, RelationType relation, std::size_t maxDepth)
 {
     std::set<std::string> seen;
-    parent = addService(seen, name, maxDepth);
+    parent = addService(seen, name, relation, maxDepth);
     update();
 }
 

@@ -14,9 +14,18 @@ if(NOT ftxui_POPULATED)
   add_subdirectory(${ftxui_SOURCE_DIR} ${ftxui_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
 
+include(FetchContent)
+FetchContent_Declare(
+    argparse
+    GIT_REPOSITORY https://github.com/p-ranav/argparse.git
+    GIT_TAG v3.0
+)
+FetchContent_MakeAvailable(argparse)
+
+
 project(targetctl
-  LANGUAGES CXX
-  VERSION 1.0.0
+LANGUAGES CXX
+VERSION 1.0.0
 )
 
 set (CMAKE_CXX_STANDARD 17)
@@ -34,6 +43,7 @@ target_link_libraries(${PROJECT_NAME}
   PRIVATE ftxui::screen
   PRIVATE ftxui::dom
   PRIVATE ftxui::component
+  PRIVATE argparse
   ${SYSTEMD_LIBRARIES}
   ${FMT_LIBRARIES}
 )

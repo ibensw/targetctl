@@ -13,6 +13,8 @@
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/color.hpp>
 
+#include <argparse/argparse.hpp>
+
 using namespace ftxui;
 
 struct ServiceMenuEntry {
@@ -48,18 +50,18 @@ std::string formatDuration(std::chrono::seconds duration)
     std::string result;
     bool started = false;
     if (days > 0) {
-        result += fmt::format("{:02d}d ", days);
+        result += fmt::format("{:2d}d ", days);
         started = true;
     }
     if (hours > 0 || started) {
-        result += fmt::format("{:02d}h ", hours);
+        result += fmt::format("{:2d}h ", hours);
         started = true;
     }
     if (minutes > 0 || started) {
-        result += fmt::format("{:02d}m ", minutes);
+        result += fmt::format("{:2d}m ", minutes);
         started = true;
     }
-    result += fmt::format("{:02d}s ", seconds);
+    result += fmt::format("{:2d}s ", seconds);
     return result;
 }
 
@@ -80,12 +82,41 @@ MenuEntryOption DecorateMenuEntry(const ServiceMenuEntry &service)
     return option;
 }
 
+const ButtonOption BlockButton{[](const EntryState &s) {
+    Element e = text(fmt::format("[ {} ]", s.label));
+    if (s.focused) {
+        e = e | inverted;
+    }
+    return e;
+}};
+
 int main(int argc, char *argv[])
 {
-    auto screen = ScreenInteractive::TerminalOutput();
-    std::string_view target = argv[1];
+    argparse::ArgumentParser argParse("targetctl");
+    argParse.add_argument("target").help("The systemd target to observe").default_value("-.slice");
+    argParse.add_argument("-t", "--tree").help("Enable recursive scanning").flag();
 
-    ServiceTree services(target, 1);
+    auto &typeGroup = argParse.add_mutually_exclusive_group();
+    RelationType type{RelationType::RequiredBy};
+    typeGroup.add_argument("-r", "--required-by").flag().action([&](const auto &) { type = RelationType::RequiredBy; });
+    typeGroup.add_argument("-R", "--requires").flag().action([&](const auto &) { type = RelationType::Requires; });
+    typeGroup.add_argument("-w", "--wanted-by").flag().action([&](const auto &) { type = RelationType::WantedBy; });
+    typeGroup.add_argument("-W", "--wants").flag().action([&](const auto &) { type = RelationType::Wants; });
+    typeGroup.add_argument("-c", "--consists-of").flag().action([&](const auto &) { type = RelationType::ConsistsOf; });
+    typeGroup.add_argument("-C", "--part-of").flag().action([&](const auto &) { type = RelationType::PartOf; });
+
+    try {
+        argParse.parse_args(argc, argv);
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << std::endl;
+        std::cerr << argParse;
+        return 1;
+    }
+
+    auto screen = ScreenInteractive::TerminalOutput();
+    std::string_view target = argParse.get<std::string>("target");
+
+    ServiceTree services(target, type, argParse.get<bool>("-t") ? 100 : 1);
     std::vector<ServiceMenuEntry> entries;
 
     services.forEach([&entries](ServiceTree::Service &service) {
@@ -94,6 +125,7 @@ int main(int argc, char *argv[])
     });
 
     int selected = 0;
+
     auto menu = Container::Vertical(
         [&]() {
             Components menuentries;
@@ -123,13 +155,49 @@ int main(int argc, char *argv[])
     };
 
     auto buttons = Container::Horizontal({
-        Button("Select all", selectAll, ButtonOption::Ascii()),
-        Button("Start", forEachSelected([&](std::string_view s) { services.start(s); }), ButtonOption::Ascii()),
-        Button("Stop", forEachSelected([&](std::string_view s) { services.stop(s); }), ButtonOption::Ascii()),
-        Button("Restart", forEachSelected([&](std::string_view s) { services.restart(s); }), ButtonOption::Ascii()),
-        Button("Reload", forEachSelected([&](std::string_view s) { services.reload(s); }), ButtonOption::Ascii()),
+        Button("Select all", selectAll, BlockButton),
+        Button("Start", forEachSelected([&](std::string_view s) { services.start(s); }), BlockButton),
+        Button("Stop", forEachSelected([&](std::string_view s) { services.stop(s); }), BlockButton),
+        Button("Restart", forEachSelected([&](std::string_view s) { services.restart(s); }), BlockButton),
+        Button("Reload", forEachSelected([&](std::string_view s) { services.reload(s); }), BlockButton),
         Button(
-            "View journal", []() {}, ButtonOption::Ascii()),
+            "View journal", []() {}, BlockButton),
+    });
+
+    auto statusBar = [&]() {
+        struct {
+            unsigned active{};
+            unsigned inactive{};
+            unsigned failed{};
+        } stateCount;
+
+        std::for_each(entries.cbegin(), entries.cend(), [&](const auto &s) {
+            switch (s.service.state) {
+                case ActiveState::Active:
+                    ++stateCount.active;
+                    break;
+                case ActiveState::Inactive:
+                    ++stateCount.inactive;
+                    break;
+                case ActiveState::Failed:
+                    ++stateCount.failed;
+                    break;
+            }
+        });
+
+        Elements fields;
+        fields.push_back(text(fmt::format("{}/{}", stateCount.active, entries.size())) | color(Color::Green));
+        if (stateCount.failed) {
+            fields.push_back(text(fmt::format(" ({})", stateCount.failed)) | color(Color::Red));
+        }
+        return hbox(fields);
+    };
+
+    buttons |= Renderer([&](Element inner) {
+        return hbox({
+            inner | flex,
+            statusBar(),
+        });
     });
 
     auto wind = Container::Vertical({

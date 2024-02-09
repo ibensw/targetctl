@@ -64,11 +64,23 @@ std::string SystemCtl::getUnitObjectPath(std::string_view name)
     return ans;
 }
 
-std::vector<std::string> SystemCtl::getDependants(std::string_view name)
+std::vector<std::string> SystemCtl::getDependants(std::string_view name, RelationType relation)
 {
+    static constexpr const std::array<std::pair<RelationType, const char *>, 6> relationMap{{
+        {RelationType::RequiredBy, "RequiredBy"},
+        {RelationType::Requires, "Requires"},
+        {RelationType::Wants, "Wants"},
+        {RelationType::WantedBy, "WantedBy"},
+        {RelationType::ConsistsOf, "ConsistsOf"},
+        {RelationType::PartOf, "PartOf"},
+    }};
+
+    auto query = std::find_if(relationMap.cbegin(), relationMap.cend(), [relation](const auto &rel) {
+                     return rel.first == relation;
+                 })->second;
+
     DBusMessage reply;
-    auto ret = sd_bus_get_property(bus, SERVICE_NAME, getUnitObjectPath(name).c_str(), INTERFACE_UNIT,
-                                   "WantedBy", // ConsistsOf // WantedBy //
+    auto ret = sd_bus_get_property(bus, SERVICE_NAME, getUnitObjectPath(name).c_str(), INTERFACE_UNIT, query,
                                    &reply.err(), &reply.msg(), "as");
     if (ret < 0) {
         throw std::runtime_error(strerror(-ret));

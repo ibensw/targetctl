@@ -19,7 +19,8 @@ class ServiceTree : public SystemCtl
         std::vector<Service> children;
     };
 
-    ServiceTree(std::string_view name, std::size_t maxDepth = std::numeric_limits<std::size_t>::max());
+    ServiceTree(std::string_view name, RelationType relation = RelationType::RequiredBy,
+                std::size_t maxDepth = std::numeric_limits<std::size_t>::max());
     ~ServiceTree() = default;
 
     bool update();
@@ -28,7 +29,8 @@ class ServiceTree : public SystemCtl
     template <typename T> void forEach(T callback) { forEachImpl(callback, parent); }
 
   private:
-    Service addService(std::set<std::string> &seen, std::string_view service, std::size_t maxDepth, unsigned level = 0);
+    Service addService(std::set<std::string> &seen, std::string_view service, RelationType relation,
+                       std::size_t maxDepth, unsigned level = 0);
     template <typename T> void forEachImpl(T callback, Service &service)
     {
         callback(service);

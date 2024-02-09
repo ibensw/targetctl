@@ -38,6 +38,15 @@ enum class ActiveState {
     Deactivating,
 };
 
+enum class RelationType {
+    RequiredBy,
+    Requires,
+    Wants,
+    WantedBy,
+    ConsistsOf,
+    PartOf,
+};
+
 class SystemCtl
 {
   public:
@@ -50,7 +59,7 @@ class SystemCtl
     void reload(std::string_view name);
     ActiveState getStatus(std::string_view name);
     std::chrono::steady_clock::time_point getStateChange(std::string_view name);
-    std::vector<std::string> getDependants(std::string_view name);
+    std::vector<std::string> getDependants(std::string_view name, RelationType relation);
 
   private:
     void doAction(std::string_view name, const char *action);

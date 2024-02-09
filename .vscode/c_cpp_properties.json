@@ -4,7 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/build/_deps/ftxui-src/src/"
+                "${workspaceFolder}/build/_deps/ftxui-src/src/",
+                "${workspaceFolder}/build/_deps/argparse-src/include/"
             ],
             "defines": [],
             "cStandard": "c17",
