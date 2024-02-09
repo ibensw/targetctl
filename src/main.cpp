@@ -1,4 +1,4 @@
-#include "systemctl.h"
+#include "servicetree.h"
 #include <fmt/format.h>
 #include <functional>
 #include <iostream>
@@ -15,35 +15,64 @@
 
 using namespace ftxui;
 
-class ServiceEntry
-{
-  public:
-    std::string name;
-    ActiveState state;
-    bool selected;
+struct ServiceMenuEntry {
+    ServiceTree::Service &service;
+    bool selected = false;
 };
 
-MenuEntryOption DecorateMenuEntry(const ServiceEntry &service)
+ftxui::Color stateColor(ActiveState state)
+{
+    switch (state) {
+        case ActiveState::Active:
+            return Color::Green;
+        case ActiveState::Inactive:
+            return Color::GrayDark;
+        case ActiveState::Activating:
+        case ActiveState::Deactivating:
+        case ActiveState::Reloading:
+            return Color::Yellow;
+        case ActiveState::Failed:
+            return Color::Red;
+            break;
+    }
+    return Color::Black;
+}
+
+std::string formatDuration(std::chrono::seconds duration)
+{
+    auto totalSeconds = duration.count();
+    auto seconds = totalSeconds % 60;
+    auto minutes = totalSeconds / 60 % 60;
+    auto hours = totalSeconds / 60 / 60 % 24;
+    auto days = totalSeconds / 60 / 60 / 24;
+    std::string result;
+    bool started = false;
+    if (days > 0) {
+        result += fmt::format("{:02d}d ", days);
+        started = true;
+    }
+    if (hours > 0 || started) {
+        result += fmt::format("{:02d}h ", hours);
+        started = true;
+    }
+    if (minutes > 0 || started) {
+        result += fmt::format("{:02d}m ", minutes);
+        started = true;
+    }
+    result += fmt::format("{:02d}s ", seconds);
+    return result;
+}
+
+MenuEntryOption DecorateMenuEntry(const ServiceMenuEntry &service)
 {
     MenuEntryOption option;
     option.transform = [&](EntryState state) {
-        state.label = (service.selected ? "[*] " : "[ ] ") + state.label;
-        Element e = text(state.label);
-        switch (service.state) {
-            case ActiveState::Active:
-                e |= color(Color::Green);
-                break;
-            case ActiveState::Inactive:
-                e |= color(Color::GrayDark);
-                break;
-            case ActiveState::Activating:
-            case ActiveState::Deactivating:
-            case ActiveState::Reloading:
-                e |= color(Color::Yellow);
-                break;
-            case ActiveState::Failed:
-                e |= color(Color::Red);
-        }
+        using namespace std::chrono;
+        std::string indentName((service.service.depth) * 2, ' ');
+        indentName += service.service.name;
+        auto uptime = duration_cast<seconds>(steady_clock::now() - service.service.stateChanged);
+        state.label = fmt::format("[{}] {:50}{:>20}", service.selected ? '*' : ' ', indentName, formatDuration(uptime));
+        Element e = text(state.label) | color(stateColor(service.service.state));
         if (state.focused)
             e = e | inverted;
         return e;
@@ -54,25 +83,23 @@ MenuEntryOption DecorateMenuEntry(const ServiceEntry &service)
 int main(int argc, char *argv[])
 {
     auto screen = ScreenInteractive::TerminalOutput();
-    SystemCtl ctl;
     std::string_view target = argv[1];
-    auto childs = ctl.getDependants(target);
-    std::vector<ServiceEntry> services;
-    services.reserve(childs.size());
-    for (auto &child : childs) {
-        auto state = ctl.getStatus(child);
-        ServiceEntry entry{child, state, false};
-        services.push_back(entry);
-    }
+
+    ServiceTree services(target, 1);
+    std::vector<ServiceMenuEntry> entries;
+
+    services.forEach([&entries](ServiceTree::Service &service) {
+        if (service.depth > 0)
+            entries.push_back({service});
+    });
 
     int selected = 0;
-
     auto menu = Container::Vertical(
         [&]() {
             Components menuentries;
-            menuentries.reserve(services.size());
-            for (const auto &service : services) {
-                menuentries.push_back(MenuEntry(service.name, DecorateMenuEntry(service)));
+            menuentries.reserve(entries.size());
+            for (const auto &service : entries) {
+                menuentries.push_back(MenuEntry("", DecorateMenuEntry(service)));
             }
             return menuentries;
         }(),
@@ -80,73 +107,80 @@ int main(int argc, char *argv[])
 
     auto selectAll = [&]() {
         bool setValue = true;
-        if (std::all_of(services.cbegin(), services.cend(), [](const auto &s) { return s.selected; })) {
+        if (std::all_of(entries.cbegin(), entries.cend(), [](const auto &s) { return s.selected; })) {
             setValue = false;
         }
-        std::for_each(services.begin(), services.end(), [setValue](auto &s) { s.selected = setValue; });
+        std::for_each(entries.begin(), entries.end(), [setValue](auto &s) { s.selected = setValue; });
     };
 
     auto forEachSelected = [&](std::function<void(std::string_view)> f) {
-        return [&services, &f]() {
-            std::for_each(services.cbegin(), services.cend(), [&f](const auto &s) {
+        return [&entries, &f]() {
+            std::for_each(entries.cbegin(), entries.cend(), [&f](const auto &s) {
                 if (s.selected)
-                    f(s.name);
+                    f(s.service.name);
             });
         };
     };
 
+    auto buttons = Container::Horizontal({
+        Button("Select all", selectAll, ButtonOption::Ascii()),
+        Button("Start", forEachSelected([&](std::string_view s) { services.start(s); }), ButtonOption::Ascii()),
+        Button("Stop", forEachSelected([&](std::string_view s) { services.stop(s); }), ButtonOption::Ascii()),
+        Button("Restart", forEachSelected([&](std::string_view s) { services.restart(s); }), ButtonOption::Ascii()),
+        Button("Reload", forEachSelected([&](std::string_view s) { services.reload(s); }), ButtonOption::Ascii()),
+        Button(
+            "View journal", []() {}, ButtonOption::Ascii()),
+    });
+
     auto wind = Container::Vertical({
         menu | vscroll_indicator | frame | size(HEIGHT, EQUAL, Dimension::Full().dimy - 3),
-        Container::Horizontal({
-            Button("Select all", selectAll, ButtonOption::Ascii()),
-            Button("Start", forEachSelected([&](std::string_view s) { ctl.start(s); }), ButtonOption::Ascii()),
-            Button("Stop", forEachSelected([&](std::string_view s) { ctl.stop(s); }), ButtonOption::Ascii()),
-            Button("Restart", forEachSelected([&](std::string_view s) { ctl.restart(s); }), ButtonOption::Ascii()),
-            Button("Reload", forEachSelected([&](std::string_view s) { ctl.reload(s); }), ButtonOption::Ascii()),
-        }),
+        buttons,
     });
 
     wind |= CatchEvent([&](Event e) {
         if (menu->Focused()) {
             if (e == Event::Return || e == Event::Character(' ')) {
-                services[selected].selected = !services[selected].selected;
+                entries[selected].selected = !entries[selected].selected;
                 return true;
-            } else {
-                return false;
+            } else if (e == Event::Tab) {
+                buttons->TakeFocus();
+                return true;
             }
-        } else {
             return false;
+        } else if (buttons->Focused()) {
+            if (e == Event::TabReverse) {
+                menu->TakeFocus();
+                return true;
+            }
         }
+        return false;
     });
 
     auto renderer = Renderer(wind, [&] {
-        return window(text(fmt::format(" {} ", target)), wind->Render()) | size(HEIGHT, EQUAL, Dimension::Full().dimy);
+        auto &parent = services.getParent();
+        return window(text(fmt::format(" {} ", parent.name)) | color(stateColor(parent.state)), wind->Render()) |
+               size(HEIGHT, EQUAL, Dimension::Full().dimy);
     });
 
     std::atomic<bool> exited = false;
     std::thread updater([&]() {
+        using namespace std::chrono;
         static const std::set<ActiveState> quickStates = {
             ActiveState::Activating,
             ActiveState::Deactivating,
             ActiveState::Reloading,
         };
+        auto lastSecs = time_point_cast<seconds>(steady_clock::now());
         while (!exited) {
-            bool modified = false;
-            std::chrono::milliseconds updateInterval{250};
-            for (auto &service : services) {
-                auto newState = ctl.getStatus(service.name);
-                if (service.state != newState) {
-                    service.state = newState;
-                    modified = true;
-                }
-                if (quickStates.count(service.state)) {
-                    updateInterval = std::chrono::milliseconds{50};
-                }
-            }
-            if (modified) {
+            bool modified = services.update();
+            auto currentSecs = time_point_cast<seconds>(steady_clock::now());
+            if (modified || lastSecs != currentSecs) {
+                lastSecs = currentSecs;
                 screen.RequestAnimationFrame();
+                std::this_thread::sleep_for(std::chrono::milliseconds{50});
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds{1000});
             }
-            std::this_thread::sleep_for(updateInterval);
         }
     });
     screen.Loop(renderer);

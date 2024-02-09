@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -19,15 +20,9 @@ class DBusMessage
             sd_bus_error_free(&error);
         }
     }
-    inline sd_bus_message *&msg()
-    {
-        return message;
-    }
+    inline sd_bus_message *&msg() { return message; }
 
-    inline sd_bus_error &err()
-    {
-        return error;
-    }
+    inline sd_bus_error &err() { return error; }
 
   private:
     sd_bus_message *message = nullptr;
@@ -54,6 +49,7 @@ class SystemCtl
     void restart(std::string_view name);
     void reload(std::string_view name);
     ActiveState getStatus(std::string_view name);
+    std::chrono::steady_clock::time_point getStateChange(std::string_view name);
     std::vector<std::string> getDependants(std::string_view name);
 
   private:

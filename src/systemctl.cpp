@@ -31,10 +31,7 @@ SystemCtl::SystemCtl()
     }
 }
 
-SystemCtl::~SystemCtl()
-{
-    sd_bus_close(bus);
-}
+SystemCtl::~SystemCtl() { sd_bus_close(bus); }
 
 void SystemCtl::doAction(std::string_view name, const char *action)
 {
@@ -46,22 +43,10 @@ void SystemCtl::doAction(std::string_view name, const char *action)
     }
 }
 
-void SystemCtl::start(std::string_view name)
-{
-    doAction(name, Methods::START);
-}
-void SystemCtl::stop(std::string_view name)
-{
-    doAction(name, Methods::STOP);
-}
-void SystemCtl::restart(std::string_view name)
-{
-    doAction(name, Methods::RESTART);
-}
-void SystemCtl::reload(std::string_view name)
-{
-    doAction(name, Methods::RELOAD);
-}
+void SystemCtl::start(std::string_view name) { doAction(name, Methods::START); }
+void SystemCtl::stop(std::string_view name) { doAction(name, Methods::STOP); }
+void SystemCtl::restart(std::string_view name) { doAction(name, Methods::RESTART); }
+void SystemCtl::reload(std::string_view name) { doAction(name, Methods::RELOAD); }
 
 std::string SystemCtl::getUnitObjectPath(std::string_view name)
 {
@@ -83,7 +68,7 @@ std::vector<std::string> SystemCtl::getDependants(std::string_view name)
 {
     DBusMessage reply;
     auto ret = sd_bus_get_property(bus, SERVICE_NAME, getUnitObjectPath(name).c_str(), INTERFACE_UNIT,
-                                   "WantedBy", // ConsistsOf
+                                   "WantedBy", // ConsistsOf // WantedBy //
                                    &reply.err(), &reply.msg(), "as");
     if (ret < 0) {
         throw std::runtime_error(strerror(-ret));
@@ -113,4 +98,17 @@ ActiveState SystemCtl::getStatus(std::string_view name)
     auto state = *DBusMessageReader<std::string>::read(reply);
     return std::find_if(stateMap.cbegin(), stateMap.cend(), [&](const auto &entry) { return entry.first == state; })
         ->second;
+}
+
+std::chrono::steady_clock::time_point SystemCtl::getStateChange(std::string_view name)
+{
+    DBusMessage reply;
+    auto ret = sd_bus_get_property(bus, SERVICE_NAME, getUnitObjectPath(name).c_str(), INTERFACE_UNIT,
+                                   "StateChangeTimestampMonotonic", &reply.err(), &reply.msg(), "t");
+    if (ret < 0) {
+        throw std::runtime_error(strerror(-ret));
+    }
+
+    auto timestamp = *DBusMessageReader<uint64_t>::read(reply);
+    return std::chrono::steady_clock::time_point(std::chrono::microseconds(timestamp));
 }

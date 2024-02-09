@@ -21,7 +21,7 @@ project(targetctl
 
 set (CMAKE_CXX_STANDARD 17)
 
-add_executable(targetctl src/main.cpp src/systemctl.cpp)
+add_executable(targetctl src/main.cpp src/systemctl.cpp src/servicetree.cpp)
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 
 find_package(PkgConfig)
