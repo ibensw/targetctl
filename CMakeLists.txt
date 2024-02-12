@@ -33,6 +33,12 @@ set (CMAKE_CXX_STANDARD 17)
 add_executable(targetctl src/main.cpp src/systemctl.cpp src/servicetree.cpp src/ui.cpp)
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 
+if(CLANG_TIDY)
+  find_program(CLANG_TIDY_BIN NAMES "clang-tidy")
+  set(CLANG_TIDY_COMMAND ${CLANG_TIDY_BIN} --extra-arg=-Wno-invalid-constexpr --extra-arg=-Wno-unknown-warning-option --extra-arg=-Wno-ignored-optimization-argument --extra-arg=-Wno-sign-conversion --config-file=${CMAKE_SOURCE_DIR}/.clang-tidy)
+  set_target_properties(targetctl PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_COMMAND}")
+endif()
+
 find_package(PkgConfig)
 pkg_check_modules(SYSTEMD REQUIRED libsystemd)
 pkg_check_modules(FMT REQUIRED fmt)
@@ -47,3 +53,5 @@ target_link_libraries(${PROJECT_NAME}
   ${SYSTEMD_LIBRARIES}
   ${FMT_LIBRARIES}
 )
+
+install(TARGETS targetctl RUNTIME)

@@ -21,6 +21,7 @@
 int main(int argc, char *argv[])
 {
     argparse::ArgumentParser argParse("targetctl");
+    argParse.add_description("And interactive systemd controller.\nhttps://github.com/ibensw/targetctl");
     argParse.add_argument("target").help("The systemd target to observe").default_value("-.slice");
     argParse.add_argument("-t", "--tree").help("Enable recursive scanning").flag();
 
@@ -41,6 +42,9 @@ int main(int argc, char *argv[])
         return 1;
     }
     auto target = argParse.get<std::string>("target");
+    if (target.find('.') == target.npos) {
+        target += ".service";
+    }
     ServiceTree services(target, type, argParse.get<bool>("-t") ? 100 : 1);
     services.update();
 

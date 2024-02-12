@@ -86,7 +86,7 @@ std::vector<std::string> SystemCtl::getDependants(std::string_view name, Relatio
         throw std::runtime_error(strerror(-ret));
     }
 
-    return *DBusMessageReader<std::vector<std::string>>::read(reply);
+    return *DBusMessageReader<std::vector<std::string>>::read(reply); // NOLINT(bugprone-unchecked-optional-access)
 }
 
 ActiveState SystemCtl::getStatus(std::string_view name)
@@ -107,7 +107,7 @@ ActiveState SystemCtl::getStatus(std::string_view name)
         {"deactivating", ActiveState::Deactivating},
     }};
 
-    auto state = *DBusMessageReader<std::string>::read(reply);
+    auto state = *DBusMessageReader<std::string>::read(reply); // NOLINT(bugprone-unchecked-optional-access)
     return std::find_if(stateMap.cbegin(), stateMap.cend(), [&](const auto &entry) { return entry.first == state; })
         ->second;
 }
@@ -121,6 +121,6 @@ std::chrono::steady_clock::time_point SystemCtl::getStateChange(std::string_view
         throw std::runtime_error(strerror(-ret));
     }
 
-    auto timestamp = *DBusMessageReader<uint64_t>::read(reply);
+    auto timestamp = *DBusMessageReader<uint64_t>::read(reply); // NOLINT(bugprone-unchecked-optional-access)
     return std::chrono::steady_clock::time_point(std::chrono::microseconds(timestamp));
 }

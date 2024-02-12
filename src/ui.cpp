@@ -77,7 +77,7 @@ MenuEntryOption TargetCtlUI::DecorateMenuEntry(const ServiceMenuEntry &service)
     MenuEntryOption option;
     option.transform = [&](EntryState state) {
         using namespace std::chrono;
-        std::string indentName((service.service.depth) * 2, ' ');
+        std::string indentName(static_cast<std::size_t>(service.service.depth * 2), ' ');
         indentName += service.service.name;
         auto uptime = duration_cast<seconds>(steady_clock::now() - service.service.stateChanged);
         Element e = hbox({
