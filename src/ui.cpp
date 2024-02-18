@@ -1,24 +1,170 @@
 #include "ui.h"
 
 #include <chrono>
-#include <fmt/format.h>
-#include <ftxui/component/component_base.hpp>
-#include <ftxui/component/component_options.hpp>
-#include <ftxui/component/screen_interactive.hpp>
-#include <ftxui/dom/elements.hpp>
-#include <ftxui/screen/color.hpp>
-
 #include <fmt/core.h>
+#include <fmt/format.h>
+#include <terminal.h>
+
+std::string_view stateColor(ActiveState state)
+{
+    switch (state) {
+        case ActiveState::Active:
+            return ANSIControlCodes::FG_GREEN;
+        case ActiveState::Inactive:
+            return "\033[38;5;244m";
+        case ActiveState::Activating:
+        case ActiveState::Deactivating:
+        case ActiveState::Reloading:
+            return ANSIControlCodes::FG_YELLOW;
+        case ActiveState::Failed:
+            return ANSIControlCodes::FG_RED;
+            break;
+    }
+    return ANSIControlCodes::FG_BLACK;
+}
+
+ServiceEntry::ServiceEntry(ServiceTree::Service *pservice, unsigned *selCount)
+    : HContainer({}), service(*pservice), selCount(selCount), selectedText("[ ]"), stateTime("")
+{
+    elements.push_back(selectedText);
+    std::string indent(service.depth * 2 + 1, ' ');
+    elements.push_back(Text(indent + service.name, true) | HStretch());
+    elements.push_back(stateTime);
+}
+
+bool ServiceEntry::handleEvent(KeyEvent event)
+{
+    if (event == KeyEvent::RETURN || event == KeyEvent::SPACE) {
+        selected = !selected;
+        *selCount = *selCount + (selected ? +1 : -1);
+        return true;
+    }
+    return false;
+}
+
+std::string ServiceEntry::formatDuration(std::chrono::seconds duration)
+{
+    auto totalSeconds = duration.count();
+    auto seconds = totalSeconds % 60;
+    auto minutes = totalSeconds / 60 % 60;
+    auto hours = totalSeconds / 60 / 60 % 24;
+    auto days = totalSeconds / 60 / 60 / 24;
+    std::string result;
+    bool started = false;
+    if (days > 0) {
+        result += fmt::format("{:2d}d ", days);
+        started = true;
+    }
+    if (hours > 0 || started) {
+        result += fmt::format("{:2d}h ", hours);
+        started = true;
+    }
+    if (minutes > 0 || started) {
+        result += fmt::format("{:2d}m ", minutes);
+        started = true;
+    }
+    result += fmt::format("{:2d}s", seconds);
+    return result;
+}
+
+void ServiceEntry::render(View &view)
+{
+    using namespace std::chrono;
+    if (isFocused()) {
+        view.viewStyle.invert = true;
+    }
+    view.viewStyle.fgColor = stateColor(service.state);
+    selectedText->text = selected ? "[*]" : "[ ]";
+    auto uptime = duration_cast<seconds>(steady_clock::now() - service.stateChanged);
+    stateTime->text = formatDuration(uptime);
+    HContainer::render(view);
+}
+
+TargetCtlUI::TargetCtlUI(ServiceTree &stree) : services(stree)
+{
+    // Make the service list
+    services.forEach(
+        [this](ServiceTree::Service &service) { serviceMenuEntries.emplace_back(&service, &selectionCount); });
+    std::vector<BaseElement> baseServices(serviceMenuEntries.begin(), serviceMenuEntries.end());
+    auto serviceMenu = VMenu(baseServices);
+
+    auto statusSelectionText = Text("");
+    auto statusSelection = statusSelectionText | PreRender([=](BaseElement e, const View &) {
+                               if (selectionCount == 0) {
+                                   statusSelectionText->text = "";
+                               } else {
+                                   statusSelectionText->text = fmt::format("Selected: {} ", selectionCount);
+                               }
+                           });
+
+    auto statusFailedText = Text("");
+    auto statusFailed =
+        statusFailedText | Color(ANSIControlCodes::FG_RED) | PreRender([=](BaseElement e, const View &) {
+            unsigned failedCount = 0;
+            services.forEach([&](ServiceTree::Service &service) {
+                if (service.state == ActiveState::Failed) {
+                    failedCount++;
+                }
+            });
+            statusFailedText->text = fmt::format("{} failed ", failedCount);
+        });
+    auto statusActiveText = Text("");
+    auto statusActive =
+        statusActiveText | Color(ANSIControlCodes::FG_GREEN) | PreRender([=](BaseElement e, const View &) {
+            unsigned activeCount = 0;
+            unsigned total = 0;
+            services.forEach([&](ServiceTree::Service &service) {
+                total++;
+                if (service.state == ActiveState::Active) {
+                    activeCount++;
+                }
+            });
+            statusActiveText->text = fmt::format("{}/{}", activeCount, total);
+        });
+
+    auto statusBar = HContainer(statusMessage | HStretch(), statusSelection, statusFailed, statusActive);
+
+    auto actionBar = HContainer(Button("Select All", [this] { selectAllNone(); }),
+                                Button("Start", [this] { selectedDo(&ServiceTree::start); }),
+                                Button("Stop", [this] { selectedDo(&ServiceTree::stop); }),
+                                Button("Restart", [this] { selectedDo(&ServiceTree::restart); }),
+                                Button("Reload", [this] { selectedDo(&ServiceTree::reload); }) | Stretch(), statusBar);
+
+    ui = VContainer(serviceMenu | Fit, actionBar);
+}
+
+void TargetCtlUI::selectAllNone()
+{
+    bool select = selectionCount != serviceMenuEntries.size();
+    std::for_each(serviceMenuEntries.begin(), serviceMenuEntries.end(),
+                  [select](auto &entry) { entry->selected = select; });
+    selectionCount = select ? serviceMenuEntries.size() : 0;
+}
+
+void TargetCtlUI::selectedDo(actionFn action)
+{
+    if (selectionCount == 0) {
+        setStatus("Nothing selected");
+    }
+    std::for_each(serviceMenuEntries.cbegin(), serviceMenuEntries.cend(), [this, action](const auto &entry) {
+        if (entry->selected) {
+            (services.*action)(entry->service.name);
+        }
+    });
+}
+
+#if 0
 
 using namespace ftxui;
 
-const ButtonOption BlockButton{[](const EntryState &s) {
-    Element e = text(fmt::format("[ {} ]", s.label));
-    if (s.focused) {
-        e = e | inverted;
-    }
-    return e;
-}};
+const ButtonOption BlockButton = {"test", {}, [](const EntryState &s) {
+                                      Element e = text(fmt::format("[ {} ]", s.label));
+                                      if (s.focused) {
+                                          e = e | inverted;
+                                      }
+                                      return e;
+                                  }};
+// const ButtonOption BlockButton{5, {}};
 
 std::string TargetCtlUI::formatDuration(std::chrono::seconds duration)
 {
@@ -181,7 +327,8 @@ TargetCtlUI::operator ftxui::Component()
             "Restart", [this]() { selectedDo(&ServiceTree::restart); }, BlockButton),
         Button(
             "Reload", [this]() { selectedDo(&ServiceTree::reload); }, BlockButton),
-        // Button("View journal", doJournal, BlockButton),
+        Button(
+            "View journal", [this]() { showJournal(); }, BlockButton),
     });
 
     buttons |= Renderer([this](Element inner) {
@@ -207,9 +354,9 @@ TargetCtlUI::operator ftxui::Component()
         buttons,
     });
 
-    mainWindow |= CatchEvent([&, this](Event e) {
+    mainWindow |= CatchEvent([this](Event e) {
         statusText = "";
-        if (e.character() == "q") {
+        if (e.character() == "q" || e == Event::Escape) {
             exit();
             return true;
         }
@@ -231,8 +378,23 @@ TargetCtlUI::operator ftxui::Component()
         return false;
     });
 
-    return Renderer(mainWindow, [&, this] {
-        return window(text(fmt::format(" {} ", parent.name)) | color(stateColor(parent.state)), mainWindow->Render()) |
-               size(HEIGHT, EQUAL, Dimension::Full().dimy);
+    journalWindow = Container::Vertical([this]() {
+        Components logLines;
+        for (auto &entry : journalEntries) {
+            logLines.push_back(MenuEntry(entry.message));
+        }
+        return logLines;
+    }());
+
+    return Renderer(mainWindow, [this] {
+        if (showingJournal()) {
+            return window(text(fmt::format(" {} ", parent.name)), journalWindow->Render()) |
+                   size(HEIGHT, EQUAL, Dimension::Full().dimy);
+        } else {
+            return window(text(fmt::format(" {} ", parent.name)) | color(stateColor(parent.state)),
+                          mainWindow->Render()) |
+                   size(HEIGHT, EQUAL, Dimension::Full().dimy);
+        }
     });
 }
+#endif

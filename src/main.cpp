@@ -7,14 +7,8 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <thread>
 #include <unistd.h>
-
-#include <ftxui/component/component.hpp>
-#include <ftxui/component/component_base.hpp>
-#include <ftxui/component/component_options.hpp>
-#include <ftxui/component/screen_interactive.hpp>
-#include <ftxui/dom/elements.hpp>
-#include <ftxui/screen/color.hpp>
 
 #include <argparse/argparse.hpp>
 
@@ -43,29 +37,39 @@ int main(int argc, char *argv[])
     }
     auto target = argParse.get<std::string>("target");
     if (target.find('.') == target.npos) {
-        target += ".service";
+        target += ".target";
     }
     ServiceTree services(target, type, argParse.get<bool>("-t") ? 100 : 1);
     services.update();
 
-    auto screen = ftxui::ScreenInteractive::TerminalOutput();
+    TargetCtlUI ui(services);
+
+    Terminal terminal;
     std::atomic<bool> exited = false;
     Notifier stopSignal;
 
     std::thread updater([&]() {
         while (!exited) {
-            screen.Post([&]() { services.update(); });
-            screen.RequestAnimationFrame();
+            terminal.post([&](Terminal &, BaseElement) { services.update(); });
             stopSignal.wait_for(std::chrono::milliseconds{1000});
         }
     });
 
-    TargetCtlUI ui{services, screen.ExitLoopClosure()};
+    auto exitHandler = [&](KeyEvent event, BaseElement e) {
+        if (e->handleEvent(event)) {
+            return true;
+        }
+        if (event == KeyEvent::ESCAPE || event == CharEvent('q')) {
+            terminal.stop();
+            return true;
+        }
+        return false;
+    };
 
     try {
         while (!exited) {
             try {
-                screen.Loop(ui);
+                terminal.runInteractive(KeyHander(exitHandler)(ui));
                 exited = true;
             } catch (const std::runtime_error &e) {
                 ui.setStatus(e.what());
@@ -74,7 +78,9 @@ int main(int argc, char *argv[])
     } catch (const std::exception &e) {
         std::cerr << "Uncaught exception: " << e.what() << std::endl;
     }
+
     stopSignal.notify();
+    terminal.clear();
     updater.join();
 
     return 0;
