@@ -44,5 +44,5 @@ Optional arguments:
 ```
 
 ## Dependencies
-- [tuilight](https://github.com/wibens/tuilight) (staticly linked)
+- [tuilight](https://github.com/ibensw/tuilight) (staticly linked)
 - [argparse](https://github.com/p-ranav/argparse) (staticly linked)
