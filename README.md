@@ -11,8 +11,6 @@ A ftxui systemctl status and journal viewer
 
 ## Todo/Issues
 - Add a journal viewer
-- When the list is scrolled and loses focus it will render the top
-- Update to latest ftxui version
 
 ## Build
 ```bash
@@ -46,5 +44,5 @@ Optional arguments:
 ```
 
 ## Dependencies
-- [ftxui](https://github.com/ArthurSonzogni/ftxui) (staticly linked)
+- [tuilight](https://github.com/wibens/tuilight) (staticly linked)
 - [argparse](https://github.com/p-ranav/argparse) (staticly linked)
