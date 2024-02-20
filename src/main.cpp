@@ -12,6 +12,8 @@
 
 #include <argparse/argparse.hpp>
 
+using namespace wibens::tuilight;
+
 int main(int argc, char *argv[])
 {
     argparse::ArgumentParser argParse("targetctl");
@@ -59,7 +61,7 @@ int main(int argc, char *argv[])
         if (e->handleEvent(event)) {
             return true;
         }
-        if (event == KeyEvent::ESCAPE || event == CharEvent('q')) {
+        if (event == KeyEvent::ESCAPE || event == ansi::CharEvent('q')) {
             terminal.stop();
             return true;
         }
