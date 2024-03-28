@@ -1,5 +1,5 @@
 # targetctl
-A ftxui systemctl status and journal viewer
+A tuilight systemctl status and journal viewer
 
 ![Screencast](screencast.svg)
 
